@@ -1,0 +1,1 @@
+# midinero-cloudformation-template

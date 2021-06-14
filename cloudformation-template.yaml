@@ -1,0 +1,358 @@
+AWSTemplateFormatVersion: 2010-09-09
+Parameters: 
+  Stage:
+    Type: String
+    AllowedValues:
+      - prod
+      - preprod
+      - uat
+    Description: "Project stage name"
+  ProjectSource: 
+    Type: String
+    Default: https://github.com/midinero/web-privada
+    Description: "Github repository URL"
+  GithubOwner:
+    Type: String
+    Default: midinero
+    Description: "Github owner username"
+  GithubRepo:
+    Type: String
+    Default: web-privada
+    Description: "Github repository name"
+  GithubBranch:
+    Type: String
+    AllowedValues:
+      - master
+      - preprod
+      - beta
+      - develop
+    Description: "Github repository branch name"
+  GithubOAuthToken:
+    Type: String
+    Description: "Github personal access token"
+  EnvMwUrl:
+    Type: String
+    Description: "Enter API URl"
+  EnvApiUrl:
+    Type: String
+    Description: "Enter api URL"
+  EnvAuthLogoutUrl:
+    Type: String
+    Description: "Enter logout URL"
+  EnvAuthUrl:
+    Type: String
+    Description: "Enter auth URL"
+  EnvAuthCode:
+    Type: String
+    Description: "Enter auth code"
+  EnvAuthClientId:
+    Type: String
+    Description: "Enter auth client id"
+  EnvIsamMwUrl:
+    Type: String
+    Description: "Enter ISAM API URl"
+  EnvIsamApiUrl:
+    Type: String
+    Description: "Enter ISAM api URL"
+  EnvIsamAuthLogoutUrl:
+    Type: String
+    Description: "Enter ISAM logout URL"
+  EnvIsamAuthUrl:
+    Type: String
+    Description: "Enter ISAM auth URL"
+  EnvIsamAuthCode:
+    Type: String
+    Description: "Enter ISAM auth code"
+  EnvIsamAuthClientId:
+    Type: String
+    Description: "Enter ISAM auth client id"
+  EnvGoogleAnalyticsCode:
+    Type: String
+    Description: "Enter Google Analytics code"
+  EnvPrismaServer:
+    Type: String
+    Description: "Enter prisma server"
+  EnvPrismaPort:
+    Type: String
+    Description: "Enter prisma port"
+  EnvPrismaToken:
+    Type: String
+    Description: "Enter prisma token"
+  EnvPrismaProtocol:
+    Type: String
+    Description: "Enter prisma protcol"
+
+Resources:
+  CodePipeline:
+    Type: 'AWS::CodePipeline::Pipeline'
+    Properties:
+      Name: !Join [ '-', [ 'mi-dinero', !Ref Stage ] ]
+      RoleArn: !GetAtt CodePipeLineRole.Arn
+      ArtifactStore:
+        Location: !Ref PipelineBucket
+        Type: S3
+      Stages:
+        - 
+          Name: Source
+          Actions: 
+            - 
+              Name: SourceAction
+              ActionTypeId: 
+                Category: Source
+                Owner: ThirdParty
+                Provider: GitHub
+                Version: 1
+              OutputArtifacts: 
+                - 
+                  Name: MiDineroApp
+              Configuration:
+                Owner: !Ref GithubOwner
+                Repo: !Ref GithubRepo
+                Branch: !Ref GithubBranch
+                OAuthToken: !Ref GithubOAuthToken
+        - 
+          Name: Build
+          Actions: 
+            - 
+              Name: BuildAction
+              ActionTypeId: 
+                Category: Build
+                Owner: AWS
+                Version: 1
+                Provider: CodeBuild
+              InputArtifacts: 
+                - 
+                  Name: MiDineroApp
+              OutputArtifacts: 
+                - 
+                  Name: MiDineroAppBuild
+              Configuration:
+                ProjectName: !Ref CodeBuild
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - 
+            Effect: Allow
+            Principal:
+              Service:
+                - "codebuild.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: /service-role/
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement: 
+              - 
+                Effect: Allow
+                Action:
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+                  - "s3:GetBucketVersioning"
+                  - "s3:PutObject"
+                Resource: 
+                  - !GetAtt PipelineBucket.Arn
+                  - !Join ['', [!GetAtt PipelineBucket.Arn, "/*"]]
+              - 
+                Effect: Allow
+                Action:
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+                  - "s3:GetBucketVersioning"
+                  - "s3:PutObject"
+                  - "s3:PutObjectAcl"
+                Resource: 
+                  - !GetAtt DeployBucket.Arn
+                  - !Join ['', [!GetAtt DeployBucket.Arn, "/*"]]
+              -
+                Effect: Allow
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                  - "cloudfront:CreateInvalidation"
+                Resource:
+                  - "*"
+  CodePipeLineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - 
+            Effect: Allow
+            Principal:
+              Service:
+                - "codepipeline.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement: 
+              - 
+                Effect: Allow
+                Action:
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+                  - "s3:GetBucketVersioning"
+                  - "s3:PutObject"
+                Resource: 
+                  - !GetAtt PipelineBucket.Arn
+                  - !Join ['', [!GetAtt PipelineBucket.Arn, "/*"]]
+              - 
+                Effect: Allow  
+                Action:
+                  - "codebuild:BatchGetBuilds"
+                  - "codebuild:StartBuild"
+                Resource: "*"
+  CodeBuild:
+    Type: 'AWS::CodeBuild::Project'
+    Properties:
+      Name: !Join [ '-', [ 'mi-dinero', !Ref Stage, 'codebuild' ] ]
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+        Name: MiDinero
+      Source: 
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Type: LINUX_CONTAINER
+        Image: "aws/codebuild/standard:4.0"
+        EnvironmentVariables:
+          - Name: MW_URL
+            Type: PLAINTEXT
+            Value: !Ref EnvMwUrl
+          - Name: API_URL
+            Type: PLAINTEXT
+            Value: !Ref EnvApiUrl
+          - Name: AUTH_LOGOUT_URL
+            Type: PLAINTEXT
+            Value: !Ref EnvAuthLogoutUrl
+          - Name: AUTH_URL
+            Type: PLAINTEXT
+            Value: !Ref EnvAuthUrl
+          - Name: AUTH_ENV_CODE
+            Type: PLAINTEXT
+            Value: !Ref EnvAuthCode
+          - Name: AUTH_CLIENT_ID
+            Type: PLAINTEXT
+            Value: !Ref EnvAuthClientId
+          - Name: ISAM_MW_URL
+            Type: PLAINTEXT
+            Value: !Ref EnvIsamMwUrl
+          - Name: ISAM_API_URL
+            Type: PLAINTEXT
+            Value: !Ref EnvIsamApiUrl
+          - Name: ISAM_AUTH_LOGOUT_URL
+            Type: PLAINTEXT
+            Value: !Ref EnvIsamAuthLogoutUrl
+          - Name: ISAM_AUTH_URL
+            Type: PLAINTEXT
+            Value: !Ref EnvIsamAuthUrl
+          - Name: ISAM_AUTH_ENV_CODE
+            Type: PLAINTEXT
+            Value: !Ref EnvIsamAuthCode
+          - Name: ISAM_AUTH_CLIENT_ID
+            Type: PLAINTEXT
+            Value: !Ref EnvIsamAuthClientId
+          - Name: GOOGLE_ANALYTICS_TRACKING_ID
+            Type: PLAINTEXT
+            Value: !Ref EnvGoogleAnalyticsCode
+          - Name: PRISMA_SERVER
+            Type: PLAINTEXT
+            Value: !Ref EnvPrismaServer
+          - Name: PRISMA_PORT
+            Type: PLAINTEXT
+            Value: !Ref EnvPrismaPort
+          - Name: PRISMA_TOKEN
+            Type: PLAINTEXT
+            Value: !Ref EnvPrismaToken
+          - Name: PRISMA_PROTOCOL
+            Type: PLAINTEXT
+            Value: !Ref EnvPrismaProtocol
+          - Name: STAGE
+            Type: PLAINTEXT
+            Value: !Ref Stage
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: !Sub |
+          version: 0.2
+          phases:
+            install:
+              runtime-versions:
+                nodejs: 10
+              commands:
+                - echo Installing yarn globally...
+                - npm install --global yarn
+            pre_build:
+              commands:
+                - echo Installing source YARN dependencies...
+                - yarn install
+                - echo Creating environment file
+                - touch .env
+                - echo "MW_URL=${!MW_URL}" >> .env
+                - echo "API_URL=${!API_URL}" >> .env
+                - echo "AUTH_ENV_CODE=${!AUTH_ENV_CODE}" >> .env
+                - echo "AUTH_CLIENT_ID=${!AUTH_CLIENT_ID}" >> .env
+                - echo "AUTH_LOGOUT_URL=${!AUTH_LOGOUT_URL}" >> .env
+                - echo "AUTH_URL=${!AUTH_URL}" >> .env
+                - echo "ISAM_MW_URL=${!ISAM_MW_URL}" >> .env
+                - echo "ISAM_API_URL=${!ISAM_API_URL}" >> .env
+                - echo "ISAM_AUTH_ENV_CODE=${!ISAM_AUTH_ENV_CODE}" >> .env
+                - echo "ISAM_AUTH_CLIENT_ID=${!ISAM_AUTH_CLIENT_ID}" >> .env
+                - echo "ISAM_AUTH_URL=${!ISAM_AUTH_URL}" >> .env
+                - echo "ISAM_AUTH_LOGOUT_URL=${!ISAM_AUTH_LOGOUT_URL}" >> .env
+                - echo "GOOGLE_ANALYTICS_TRACKING_ID=${!GOOGLE_ANALYTICS_TRACKING_ID}" >> .env
+                - echo "PRISMA_SERVER=${!PRISMA_SERVER}" >> .env
+                - echo "PRISMA_PORT=${!PRISMA_PORT}" >> .env
+                - echo "PRISMA_TOKEN=${!PRISMA_TOKEN}" >> .env
+                - echo "PRISMA_PROTOCOL=${!PRISMA_PROTOCOL}" >> .env
+            build:
+              commands:
+                - echo Build started on `date`
+                - yarn run build:${!STAGE}
+            post_build:
+              commands:
+                - aws s3 cp --recursive --acl public-read ./dist s3://${DeployBucket}/ 
+                - aws s3 cp --acl public-read --cache-control="max-age=0, no-cache, no-store, must-revalidate" ./dist/index.html s3://${DeployBucket}/
+                - aws cloudfront create-invalidation --distribution-id ${Distribution} --paths '/*'
+          artifacts:
+            files:
+              - '**/*'
+            base-directory: dist
+  PipelineBucket: 
+    Type: 'AWS::S3::Bucket'
+    Properties: 
+      BucketName: !Join [ '-', [ 'mi-dinero', !Ref Stage, 'pipeline' ] ]
+  DeployBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: !Join [ '-', [ 'mi-dinero', !Ref Stage] ]
+      WebsiteConfiguration:
+        IndexDocument: index.html
+  Distribution:
+    Type: "AWS::CloudFront::Distribution"
+    Properties:
+      DistributionConfig:
+        Origins:
+          - 
+            DomainName: !GetAtt DeployBucket.DomainName
+            Id: !Ref DeployBucket
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+        DefaultRootObject: index.html
+        Enabled: true
+        DefaultCacheBehavior: 
+          MinTTL: 86400
+          MaxTTL: 31536000
+          ForwardedValues: 
+            QueryString: true
+          TargetOriginId: !Ref DeployBucket
+          ViewerProtocolPolicy: "redirect-to-https"
